@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Minesweeper with Sound</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    #controls {
+      margin: 10px;
+    }
+    #game {
+      display: grid;
+      gap: 2px;
+      margin: 20px auto;
+      width: max-content;
+    }
+    .cell {
+      width: 30px;
+      height: 30px;
+      background-color: #ddd;
+      border: 1px solid #999;
+      font-weight: bold;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .cell.revealed {
+      background-color: #fff;
+      cursor: default;
+    }
+    .cell.flag {
+      background-color: #f9d342;
+    }
+    .cell.bomb {
+      background-color: #f44336;
+      color: white;
+    }
+    #flags, #timer, #best-time {
+      margin: 5px;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Minesweeper</h1>
+  <div id="controls">
+    <label for="level">Select Level: </label>
+    <select id="level">
+      <option value="easy">Easy (7×6)</option>
+      <option value="medium" selected>Medium (16×10)</option>
+      <option value="hard">Hard (24×19)</option>
+    </select>
+    <button onclick="initBoard()">Start Game</button>
+  </div>
+
+  <div id="flags">Flags Left:</div>
+  <div id="timer">Time: 0s</div>
+  <div id="best-time">Best Time: -</div>
+  <div id="game"></div>
+
+  <!-- Sound effects -->
+  <audio id="click-sound" src="https://www.soundjay.com/button/sounds/button-16.mp3"></audio>
+  <audio id="flag-sound" src="https://www.soundjay.com/button/sounds/button-10.mp3"></audio>
+  <audio id="bomb-sound" src="https://www.soundjay.com/button/sounds/button-4.mp3"></audio>
+  <audio id="win-sound" src="https://www.soundjay.com/misc/sounds/bell-ringing-01.mp3"></audio>
+
+  <script>
+    const game = document.getElementById('game');
+    const flagsLeftDisplay = document.getElementById('flags');
+    const timerDisplay = document.getElementById('timer');
+    const bestTimeDisplay = document.getElementById('best-time');
+    const levelSelect = document.getElementById('level');
+
+    const clickSound = document.getElementById('click-sound');
+    const flagSound = document.getElementById('flag-sound');
+    const bombSound = document.getElementById('bomb-sound');
+    const winSound = document.getElementById('win-sound');
+
+    let rows, cols, mineCount;
+    let board = [], flagsLeft = 0, startTime = null, timer, gameOver = false, firstClick = true;
+    let bestTime = null;
+
+    function setLevelSettings() {
+      const level = levelSelect.value;
+      if (level === 'easy') {
+        rows = 6; cols = 7; mineCount = 6;
+      } else if (level === 'medium') {
+        rows = 10; cols = 16; mineCount = 25;
+      } else if (level === 'hard') {
+        rows = 19; cols = 24; mineCount = 75;
+      }
+    }
+
+    function startTimer() {
+      startTime = Date.now();
+      timer = setInterval(() => {
+        const seconds = Math.floor((Date.now() - startTime) / 1000);
+        timerDisplay.textContent = `Time: ${seconds}s`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timer);
+    }
+
+    function initBoard() {
+      stopTimer();
+      setLevelSettings();
+      startTime = null;
+      firstClick = true;
+      gameOver = false;
+      flagsLeft = mineCount;
+      flagsLeftDisplay.textContent = `Flags Left: ${flagsLeft}`;
+      timerDisplay.textContent = `Time: 0s`;
+      const bestKey = `minesweeper-best-${levelSelect.value}`;
+      bestTime = localStorage.getItem(bestKey);
+      bestTimeDisplay.textContent = bestTime ? `Best Time: ${bestTime}s` : 'Best Time: -';
+
+      board = [];
+      game.innerHTML = '';
+      game.style.gridTemplateRows = `repeat(${rows}, 30px)`;
+      game.style.gridTemplateColumns = `repeat(${cols}, 30px)`;
+
+      for (let r = 0; r < rows; r++) {
+        board[r] = [];
+        for (let c = 0; c < cols; c++) {
+          const cell = document.createElement('div');
+          cell.classList.add('cell');
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+          cell.addEventListener('click', handleClick);
+          cell.addEventListener('contextmenu', handleRightClick);
+          game.appendChild(cell);
+          board[r][c] = { hasMine: false, revealed: false, flagged: false, element: cell, adjacentMines: 0 };
+        }
+      }
+
+      placeMines();
+      calculateAdjacency();
+    }
+
+    function placeMines() {
+      let placed = 0;
+      while (placed < mineCount) {
+        const r = Math.floor(Math.random() * rows);
+        const c = Math.floor(Math.random() * cols);
+        if (!board[r][c].hasMine) {
+          board[r][c].hasMine = true;
+          placed++;
+        }
+      }
+    }
+
+    function calculateAdjacency() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (board[r][c].hasMine) continue;
+          let count = 0;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const nr = r + dr, nc = c + dc;
+              if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && board[nr][nc].hasMine) {
+                count++;
+              }
+            }
+          }
+          board[r][c].adjacentMines = count;
+        }
+      }
+    }
+
+    function handleClick(e) {
+      const r = parseInt(this.dataset.row);
+      const c = parseInt(this.dataset.col);
+      const cell = board[r][c];
+
+      if (gameOver || cell.revealed || cell.flagged) return;
+
+      if (firstClick) {
+        startTimer();
+        firstClick = false;
+      }
+
+      clickSound.play();
+      reveal(r, c);
+    }
+
+    function handleRightClick(e) {
+      e.preventDefault();
+      const r = parseInt(this.dataset.row);
+      const c = parseInt(this.dataset.col);
+      const cell = board[r][c];
+      if (cell.revealed || gameOver) return;
+      cell.flagged = !cell.flagged;
+      cell.element.classList.toggle('flag');
+      cell.element.textContent = cell.flagged ? '⚑' : '';
+      flagsLeft += cell.flagged ? -1 : 1;
+      flagsLeftDisplay.textContent = `Flags Left: ${flagsLeft}`;
+      flagSound.play();
+    }
+
+    function reveal(r, c) {
+      const cell = board[r][c];
+      if (cell.revealed || cell.flagged) return;
+
+      cell.revealed = true;
+      cell.element.classList.add('revealed');
+
+      if (cell.hasMine) {
+        cell.element.classList.add('bomb');
+        cell.element.textContent = '💣';
+        bombSound.play();
+        alert('Game Over!');
+        revealAll();
+        gameOver = true;
+        stopTimer();
+        return;
+      }
+
+      if (cell.adjacentMines > 0) {
+        cell.element.textContent = cell.adjacentMines;
+      } else {
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const nr = r + dr, nc = c + dc;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+              reveal(nr, nc);
+            }
+          }
+        }
+      }
+      checkWin();
+    }
+
+    function revealAll() {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = board[r][c];
+          if (!cell.revealed) {
+            cell.revealed = true;
+            cell.element.classList.add('revealed');
+            if (cell.hasMine) {
+              cell.element.classList.add('bomb');
+              cell.element.textContent = '💣';
+            } else if (cell.adjacentMines > 0) {
+              cell.element.textContent = cell.adjacentMines;
+            }
+          }
+        }
+      }
+    }
+
+    function checkWin() {
+      let revealedCount = 0;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (board[r][c].revealed) revealedCount++;
+        }
+      }
+      if (revealedCount === rows * cols - mineCount) {
+        winSound.play();
+        alert('You Win!');
+        stopTimer();
+        gameOver = true;
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const bestKey = `minesweeper-best-${levelSelect.value}`;
+        const previousBest = localStorage.getItem(bestKey);
+        if (!previousBest || elapsed < parseInt(previousBest)) {
+          localStorage.setItem(bestKey, elapsed);
+          bestTimeDisplay.textContent = `Best Time: ${elapsed}s`;
+        }
+      }
+    }
+
+    initBoard();
+  </script>
+</body>
+</html>
